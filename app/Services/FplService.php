@@ -233,4 +233,255 @@ class FplService
             Log::warning('Failed to send Slack notification: '.$e->getMessage());
         }
     }
+
+    /**
+     * Sync players from bootstrap data to database
+     */
+    public function syncPlayers(): array
+    {
+        try {
+            $data = $this->getLatestData();
+
+            if (! $data || ! isset($data['elements'])) {
+                return [
+                    'success' => false,
+                    'message' => 'No bootstrap data available. Run fpl:fetch-bootstrap first.',
+                ];
+            }
+
+            // First sync positions if they don't exist
+            $this->syncPositions();
+            $this->syncTeams();
+
+            $players = $data['elements'];
+            $synced = 0;
+            $updated = 0;
+
+            foreach ($players as $playerData) {
+                // Get position_id from element_type
+                $position = \App\Models\Position::where('element_type', $playerData['element_type'])->first();
+
+                if (! $position) {
+                    Log::warning("Position not found for element_type: {$playerData['element_type']}");
+                    continue;
+                }
+
+                $player = \App\Models\Player::updateOrCreate(
+                    ['fpl_id' => $playerData['id']],
+                    [
+                        'code' => $playerData['code'],
+                        'opta_code' => $playerData['opta_code'] ?? null,
+                        'web_name' => $playerData['web_name'],
+                        'first_name' => $playerData['first_name'],
+                        'second_name' => $playerData['second_name'],
+                        'photo' => $playerData['photo'] ?? null,
+                        'squad_number' => $playerData['squad_number'],
+                        'team_id' => $playerData['team'],
+                        'position_id' => $position->id,
+                        'element_type' => $playerData['element_type'],
+                        'status' => $playerData['status'],
+                        'news' => $playerData['news'] ?? null,
+                        'news_added' => $playerData['news_added'],
+                        'chance_of_playing_this_round' => $playerData['chance_of_playing_this_round'],
+                        'chance_of_playing_next_round' => $playerData['chance_of_playing_next_round'],
+                        'now_cost' => $playerData['now_cost'],
+                        'cost_change_start' => $playerData['cost_change_start'],
+                        'cost_change_event' => $playerData['cost_change_event'],
+                        'total_points' => $playerData['total_points'],
+                        'event_points' => $playerData['event_points'],
+                        'points_per_game' => $playerData['points_per_game'],
+                        'form' => $playerData['form'],
+                        'selected_by_percent' => $playerData['selected_by_percent'],
+                        'minutes' => $playerData['minutes'],
+                        'goals_scored' => $playerData['goals_scored'],
+                        'assists' => $playerData['assists'],
+                        'clean_sheets' => $playerData['clean_sheets'],
+                        'goals_conceded' => $playerData['goals_conceded'],
+                        'own_goals' => $playerData['own_goals'],
+                        'penalties_saved' => $playerData['penalties_saved'],
+                        'penalties_missed' => $playerData['penalties_missed'],
+                        'yellow_cards' => $playerData['yellow_cards'],
+                        'red_cards' => $playerData['red_cards'],
+                        'saves' => $playerData['saves'],
+                        'bonus' => $playerData['bonus'],
+                        'bps' => $playerData['bps'],
+                        'influence' => $playerData['influence'],
+                        'creativity' => $playerData['creativity'],
+                        'threat' => $playerData['threat'],
+                        'ict_index' => $playerData['ict_index'],
+                        'expected_goals' => $playerData['expected_goals'],
+                        'expected_assists' => $playerData['expected_assists'],
+                        'expected_goal_involvements' => $playerData['expected_goal_involvements'],
+                        'expected_goals_conceded' => $playerData['expected_goals_conceded'],
+                        'transfers_in' => $playerData['transfers_in'],
+                        'transfers_out' => $playerData['transfers_out'],
+                        'transfers_in_event' => $playerData['transfers_in_event'],
+                        'transfers_out_event' => $playerData['transfers_out_event'],
+                        'in_dreamteam' => $playerData['in_dreamteam'],
+                        'dreamteam_count' => $playerData['dreamteam_count'],
+                        'special' => $playerData['special'],
+                    ]
+                );
+
+                if ($player->wasRecentlyCreated) {
+                    $synced++;
+                } else {
+                    $updated++;
+                }
+            }
+
+            Log::info('Players synced successfully', [
+                'new' => $synced,
+                'updated' => $updated,
+                'total' => count($players),
+            ]);
+
+            return [
+                'success' => true,
+                'new' => $synced,
+                'updated' => $updated,
+                'total' => count($players),
+            ];
+
+        } catch (\Exception $e) {
+            $error = 'Error syncing players: '.$e->getMessage();
+            Log::error($error);
+
+            return [
+                'success' => false,
+                'message' => $error,
+            ];
+        }
+    }
+
+    /**
+     * Sync positions from bootstrap data to database
+     */
+    public function syncPositions(): array
+    {
+        try {
+            $data = $this->getLatestData();
+
+            if (! $data || ! isset($data['element_types'])) {
+                return [
+                    'success' => false,
+                    'message' => 'No bootstrap data available.',
+                ];
+            }
+
+            $positions = $data['element_types'];
+            $synced = 0;
+
+            foreach ($positions as $positionData) {
+                \App\Models\Position::updateOrCreate(
+                    ['element_type' => $positionData['id']],
+                    [
+                        'singular_name' => $positionData['singular_name'],
+                        'singular_name_short' => $positionData['singular_name_short'],
+                        'plural_name' => $positionData['plural_name'],
+                        'plural_name_short' => $positionData['plural_name_short'],
+                        'squad_select' => $positionData['squad_select'],
+                        'squad_min_select' => $positionData['squad_min_select'] ?? 0,
+                        'squad_max_select' => $positionData['squad_max_select'] ?? 0,
+                        'squad_min_play' => $positionData['squad_min_play'],
+                        'squad_max_play' => $positionData['squad_max_play'],
+                    ]
+                );
+                $synced++;
+            }
+
+            Log::info('Positions synced', ['count' => $synced]);
+
+            return [
+                'success' => true,
+                'synced' => $synced,
+            ];
+
+        } catch (\Exception $e) {
+            $error = 'Error syncing positions: '.$e->getMessage();
+            Log::error($error);
+
+            return [
+                'success' => false,
+                'message' => $error,
+            ];
+        }
+    }
+
+    /**
+     * Sync teams from bootstrap data to database
+     */
+    public function syncTeams(): array
+    {
+        try {
+            $data = $this->getLatestData();
+
+            if (! $data || ! isset($data['teams'])) {
+                return [
+                    'success' => false,
+                    'message' => 'No bootstrap data available.',
+                ];
+            }
+
+            $teams = $data['teams'];
+            $synced = 0;
+            $updated = 0;
+
+            foreach ($teams as $teamData) {
+                $team = \App\Models\Team::updateOrCreate(
+                    ['fpl_id' => $teamData['id']],
+                    [
+                        'code' => $teamData['code'],
+                        'name' => $teamData['name'],
+                        'short_name' => $teamData['short_name'],
+                        'logo_url' => "https://resources.premierleague.com/premierleague/badges/100/t{$teamData['code']}.png",
+                        'strength' => $teamData['strength'],
+                        'position' => $teamData['position'],
+                        'played' => $teamData['played'] ?? 0,
+                        'win' => $teamData['win'] ?? 0,
+                        'draw' => $teamData['draw'] ?? 0,
+                        'loss' => $teamData['loss'] ?? 0,
+                        'points' => $teamData['points'] ?? 0,
+                        'form' => $teamData['form'],
+                        'unavailable' => $teamData['unavailable'] ?? false,
+                        'strength_overall_home' => $teamData['strength_overall_home'] ?? null,
+                        'strength_overall_away' => $teamData['strength_overall_away'] ?? null,
+                        'strength_attack_home' => $teamData['strength_attack_home'] ?? null,
+                        'strength_attack_away' => $teamData['strength_attack_away'] ?? null,
+                        'strength_defence_home' => $teamData['strength_defence_home'] ?? null,
+                        'strength_defence_away' => $teamData['strength_defence_away'] ?? null,
+                        'pulse_id' => $teamData['pulse_id'] ?? null,
+                    ]
+                );
+
+                if ($team->wasRecentlyCreated) {
+                    $synced++;
+                } else {
+                    $updated++;
+                }
+            }
+
+            Log::info('Teams synced successfully', [
+                'new' => $synced,
+                'updated' => $updated,
+                'total' => count($teams),
+            ]);
+
+            return [
+                'success' => true,
+                'new' => $synced,
+                'updated' => $updated,
+                'total' => count($teams),
+            ];
+
+        } catch (\Exception $e) {
+            $error = 'Error syncing teams: '.$e->getMessage();
+            Log::error($error);
+
+            return [
+                'success' => false,
+                'message' => $error,
+            ];
+        }
+    }
 }
