@@ -127,6 +127,15 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'fpl_slack' => [
+            'driver' => 'slack',
+            'url' => env('FPL_SLACK_WEBHOOK_URL'),
+            'username' => env('FPL_SLACK_USERNAME', 'FPL Bot'),
+            'emoji' => env('FPL_SLACK_EMOJI', ':soccer:'),
+            'level' => env('FPL_SLACK_LOG_LEVEL', 'info'),
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];
